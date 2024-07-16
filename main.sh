@@ -1,5 +1,7 @@
 #!/bin/bash
 
+#pip install pandas tqdm requests
+
 #筛选
 python fofa-xui.py
 

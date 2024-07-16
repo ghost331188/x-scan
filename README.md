@@ -7,7 +7,9 @@
 fofa 搜索参数
 
 ```
-(port="65432" || port="54321") && status_code="200" && (title="登录" || title="Login") 或者直接用fofa的fid fid="z2ENYvhR/6Q/agEXGFVmdA=="
+(port="65432" || port="54321") && status_code="200" && (title="登录" || title="Login") 
+或者直接用fofa的fid 
+fid="z2ENYvhR/6Q/agEXGFVmdA=="
 ```
 
 

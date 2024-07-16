@@ -61,7 +61,7 @@ def generate_subscription_links(data, ip_address):
                     path = ws_settings.get("path", "/")
                     vmess_config = {
                         "v": "2",
-                        "ps": item["tag"],
+                        "ps": ip_address,
                         "add": ip_address,
                         "port": item["port"],
                         "id": client_id,

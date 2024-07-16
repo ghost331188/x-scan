@@ -20,6 +20,8 @@ fid="z2ENYvhR/6Q/agEXGFVmdA=="
 
 然后运行main.sh即可
 
-link.txt        为节点连接
+link.txt   为节点连接
 
 output.md  为节点信息
+
+ip.txt    为成功登录后台

@@ -29,5 +29,5 @@ def check_host(link):
         logging.error(f'Error connecting to {link}: {e}')
 
 # 使用ThreadPoolExecutor进行多线程处理
-with ThreadPoolExecutor(max_workers=10) as executor:
+with ThreadPoolExecutor(max_workers=1000) as executor:
     executor.map(check_host, link_list)

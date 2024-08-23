@@ -1,7 +1,3 @@
-部分代码来自[https://blog-next-js.pages.dev/blog/%E6%89%AB%E6%8F%8F%E7%BB%93%E6%9E%9C](https://blog-next-js.pages.dev/blog/扫描结果) 
-
-个人进行了部分整合修改
-
 
 
 fofa 搜索参数
@@ -22,6 +18,8 @@ fid="z2ENYvhR/6Q/agEXGFVmdA=="
 
 link.txt   为节点连接
 
-output.md  为节点信息
+check.md  为节点信息
 
-ip.txt    为成功登录后台
+ip.txt    为成功登录的后台地址
+
+bpb.txt bpb链接

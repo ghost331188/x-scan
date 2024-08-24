@@ -3,151 +3,123 @@ import json
 import geoip2.database
 import socket
 import os
-import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, unquote
 
-def download_geoip_db(db_path, repo="maxmind/GeoLite2-Country", target="GeoLite2-Country.mmdb"):
-    """Download GeoLite2-Country.mmdb from GitHub release."""
-    if os.path.exists(db_path):
-        print(f"GeoIP database already exists at {db_path}.")
-        return db_path
-    
-    # GitHub API URL to fetch the latest release
-    release_api = f"https://api.github.com/repos/{repo}/releases/latest"
-    try:
-        with urllib.request.urlopen(release_api) as response:
-            data = json.loads(response.read().decode())
-            assets = data.get("assets", [])
-            download_url = next((asset["browser_download_url"] for asset in assets if asset["name"] == target), None)
-            if not download_url:
-                print(f"Could not find {target} in the latest GitHub release.")
-                return None
-            
-            # Download the file
-            print(f"Downloading {target} from {download_url}...")
-            urllib.request.urlretrieve(download_url, db_path)
-            print(f"Downloaded GeoIP database to {db_path}.")
-    except Exception as e:
-        print(f"Failed to download GeoIP database: {e}")
-        return None
-    
-    return db_path
+# 读取 JSON 文件并提取、筛选订阅链接
+def extract_and_filter_links(json_file):
+    with open(json_file, "r", encoding="utf-8") as file:
+        data = json.load(file)
+    links = []
+    for item in data:
+        for link in item.get("link", []):
+            if link.startswith("vmess://") or link.startswith("vless://"):
+                links.append(link)
+    return links
 
+# 解析并解码 vmess 链接
 def decode_vmess(vmess_link):
-    """Decode vmess link from Base64."""
     encoded_data = vmess_link[len("vmess://"):]
     decoded_data = base64.urlsafe_b64decode(encoded_data + '=' * (4 - len(encoded_data) % 4)).decode('utf-8')
     return json.loads(decoded_data)
 
+# 解析 vless 链接
 def parse_vless(vless_link):
-    """Parse vless link and extract relevant fields."""
     parsed_url = urlparse(vless_link)
+    query = parse_qs(parsed_url.query)
     return {
-        "ps": parsed_url.hostname,
-        "add": parsed_url.hostname,
-        "port": parsed_url.port,
         "id": parsed_url.username,
-        "path": parsed_url.path,
-        "type": parsed_url.query.split('=')[1] if 'type' in parsed_url.query else "none"
+        "add": parsed_url.hostname,
+        "port": parsed_url.port or "443",
+        "path": unquote(query.get("path", ["/"])[0]),
+        "type": query.get("type", ["ws"])[0],
+        "security": query.get("security", ["none"])[0],
+        "encryption": query.get("encryption", ["none"])[0],
+        "flow": query.get("flow", [""])[0],
+        "ps": parsed_url.fragment or "未知国家"  # 备注部分，国家信息
     }
 
+# 根据 GeoIP 数据库重命名 'ps' 字段，并处理重名情况
 def rename_ps_by_geoip(proxy, reader, country_counts):
-    """Rename the 'ps' field using geoip2 to get country name and handle duplicates."""
     try:
-        ip = socket.gethostbyname(proxy['add'])
-        response = reader.country(ip)
-        country_name = response.country.names.get("zh-CN", "未知国家")
-        
-        # If the country name has been used, add a number suffix
-        if country_name in country_counts:
-            country_counts[country_name] += 1
-            proxy['ps'] = f"{country_name}-{country_counts[country_name]}"
+        if proxy['add']:  # 确保地址存在
+            ip = socket.gethostbyname(proxy['add'])
+            response = reader.country(ip)
+            country_name = response.country.names.get("zh-CN", "未知国家")
+
+            if country_name in country_counts:
+                country_counts[country_name] += 1
+                proxy['ps'] = f"{country_name}-{country_counts[country_name]}"
+            else:
+                country_counts[country_name] = 1
+                proxy['ps'] = country_name
         else:
-            country_counts[country_name] = 1
-            proxy['ps'] = country_name
+            proxy['ps'] = proxy.get('ps', '未知服务器')
+    except (socket.gaierror, socket.error) as e:
+        print(f"DNS解析错误: {e}")
+        proxy['ps'] = proxy.get('ps', '未知服务器')
+    except geoip2.errors.AddressNotFoundError:
+        print("无法在GeoIP数据库中找到该IP地址")
+        proxy['ps'] = proxy.get('ps', '未知国家')
     except Exception as e:
-        print(f"Error occurred: {e}")
-        proxy['ps'] = "未知国家"
+        print(f"未知错误: {e}")
+        proxy['ps'] = proxy.get('ps', '未知服务器')
     return proxy
 
+# 编码 vmess 链接
 def encode_vmess(proxy):
-    """Encode vmess proxy dict to a vmess link."""
     json_data = json.dumps(proxy)
     encoded_data = base64.urlsafe_b64encode(json_data.encode('utf-8')).decode('utf-8')
     return f"vmess://{encoded_data}"
 
+# 格式化 vless 链接
 def format_vless(proxy):
-    """Format vless proxy dict to a vless link."""
-    return f"vless://{proxy['id']}@{proxy['add']}:{proxy['port']}?type={proxy['type']}&path={proxy['path']}"
+    query = (
+        f"path={proxy['path']}&security={proxy['security']}&"
+        f"encryption={proxy['encryption']}&type={proxy['type']}&"
+        f"flow={proxy['flow']}"
+    )
+    return (
+        f"vless://{proxy['id']}@{proxy['add']}:{proxy['port']}?"
+        f"{query}#{proxy['ps']}"
+    )
 
-def process_vmess_links(vmess_links, reader, country_counts):
-    """Process a list of vmess links and rename their 'ps' fields."""
+# 处理并格式化 vmess 和 vless 链接
+def process_links(links, reader, country_counts):
     processed_links = []
-    for link in vmess_links:
-        proxy = decode_vmess(link)
-        proxy = rename_ps_by_geoip(proxy, reader, country_counts)
-        processed_links.append(encode_vmess(proxy))
+    for link in links:
+        if link.startswith("vmess://"):
+            proxy = decode_vmess(link)
+            proxy = rename_ps_by_geoip(proxy, reader, country_counts)
+            processed_links.append(encode_vmess(proxy))
+        elif link.startswith("vless://"):
+            proxy = parse_vless(link)
+            proxy = rename_ps_by_geoip(proxy, reader, country_counts)
+            processed_links.append(format_vless(proxy))
     return processed_links
 
-def process_vless_links(vless_links, reader, country_counts):
-    """Process a list of vless links and rename their 'ps' fields."""
-    processed_links = []
-    for link in vless_links:
-        proxy = parse_vless(link)
-        proxy = rename_ps_by_geoip(proxy, reader, country_counts)
-        processed_links.append(format_vless(proxy))
-    return processed_links
-
-def read_links(file_path):
-    """Read links from a file."""
-    with open(file_path, 'r') as file:
-        links = file.read().splitlines()
-    return links
-
+# 写入处理后的链接到文件
 def write_links(file_path, links):
-    """Write links to a file."""
-    with open(file_path, 'w') as file:
+    with open(file_path, 'w', encoding='utf-8') as file:
         for link in links:
             file.write(f"{link}\n")
 
 # 主程序
 def main():
-    input_file = 'link.txt'
+    json_file = 'output.json'
     output_file = 'link-new.txt'
-    db_directory = './geoip_db'
-    db_file = 'GeoLite2-Country.mmdb'
-    db_path = os.path.join(db_directory, db_file)
+    db_file = './geoip_db/GeoLite2-Country.mmdb'
 
-    if not os.path.exists(db_directory):
-        os.makedirs(db_directory)
-
-    # 下载 GeoIP2 数据库
-    db_path = download_geoip_db(db_path)
-
-    if not db_path or not os.path.exists(db_path):
-        print("GeoIP2 数据库下载失败或文件不存在。")
+    if not os.path.exists(db_file):
+        print("GeoIP2 数据库不存在。")
         return
 
-    # 加载 GeoIP2 数据库
-    reader = geoip2.database.Reader(db_path)
-
-    # 从文件中读取链接
-    links = read_links(input_file)
-
-    # 初始化国家计数器
+    reader = geoip2.database.Reader(db_file)
+    links = extract_and_filter_links(json_file)
     country_counts = {}
+    processed_links = process_links(links, reader, country_counts)
+    write_links(output_file, processed_links)
 
-    # 分别处理 vmess 和 vless 链接
-    vmess_links = [link for link in links if link.startswith("vmess://")]
-    vless_links = [link for link in links if link.startswith("vless://")]
-
-    processed_vmess = process_vmess_links(vmess_links, reader, country_counts)
-    processed_vless = process_vless_links(vless_links, reader, country_counts)
-
-    # 写入处理后的链接到新文件
-    write_links(output_file, processed_vmess + processed_vless)
-
-    print(f"Processed links have been written to {output_file}")
+    print(f"处理后的链接已写入 {output_file}")
 
 if __name__ == "__main__":
     main()

@@ -34,6 +34,9 @@ def generate_subscription_links(data, ip_address):
     links = []
     country = get_country_from_ip(ip_address)
 
+    # 给 country_with_suffix 一个默认值以避免 UnboundLocalError
+    country_with_suffix = f"{country}-{generate_random_suffix()}"
+
     if data["success"]:
         for item in data["obj"]:
             if item["enable"]:
